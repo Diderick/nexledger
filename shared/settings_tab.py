@@ -1,7 +1,11 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox, QFormLayout
 )
+from PyQt6.QtCore import Qt
 from shared.db import get_conn
+from decimal import Decimal, InvalidOperation
+import os
+from shutil import copyfile
 
 class SettingsTab(QWidget):
     def __init__(self, parent=None):
@@ -14,7 +18,7 @@ class SettingsTab(QWidget):
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(15)
 
-        layout.addWidget(QLabel("<h2>Application Settings</h2>"))
+        layout.addWidget(QLabel("<h2>Application Settings</h2>"), alignment=Qt.AlignmentFlag.AlignCenter)
 
         form_layout = QFormLayout()
 
@@ -53,19 +57,19 @@ class SettingsTab(QWidget):
         btn_layout.addWidget(backup_btn)
 
         layout.addLayout(btn_layout)
-
         layout.addStretch()
 
     def load_settings(self):
         try:
-            conn = get_conn()
-            cur = conn.cursor()
-            cur.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)")
-            conn.commit()
+            with get_conn() as conn:  # ← AUTO-CLOSES SAFELY
+                cur = conn.cursor()
+                cur.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)")
+                conn.commit()
 
-            cur.execute("SELECT key, value FROM settings")
-            rows = cur.fetchall()
-            conn.close()
+                cur.execute("SELECT key, value FROM settings")
+                rows = cur.fetchall()  # ← FETCH INSIDE 'with'
+
+            # Connection auto-closes here → NO MANUAL CLOSE
 
             settings_map = {k: v for k, v in rows}
 
@@ -75,36 +79,39 @@ class SettingsTab(QWidget):
             self.db_name.setText(settings_map.get("db_name", "nexledger.db"))
             self.db_user.setText(settings_map.get("db_user", ""))
             self.db_pass.setText(settings_map.get("db_pass", ""))
+
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to load settings: {e}")
 
     def save_settings(self):
         try:
-            conn = get_conn()
-            cur = conn.cursor()
-            for key, widget in [
-                ("vat_rate", self.vat_input),
-                ("uif_rate", self.uif_input),
-                ("db_host", self.db_host),
-                ("db_name", self.db_name),
-                ("db_user", self.db_user),
-                ("db_pass", self.db_pass)
-            ]:
-                cur.execute("""
-                    INSERT INTO settings(key, value) VALUES(?, ?)
-                    ON CONFLICT(key) DO UPDATE SET value=excluded.value
-                """, (key, widget.text()))
-            conn.commit()
-            conn.close()
-            QMessageBox.information(self, "Success", "Settings saved successfully.")
+            with get_conn() as conn:
+                cur = conn.cursor()
+                cur.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)")
+
+                settings = [
+                    ("vat_rate", self.vat_input.text()),
+                    ("uif_rate", self.uif_input.text()),
+                    ("db_host", self.db_host.text()),
+                    ("db_name", self.db_name.text()),
+                    ("db_user", self.db_user.text()),
+                    ("db_pass", self.db_pass.text()),
+                ]
+
+                cur.executemany("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", settings)
+                conn.commit()
+
+            QMessageBox.information(self, "Success", "Settings saved.")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to save settings: {e}")
 
     def backup_db(self):
         try:
-            from shutil import copyfile
             db_file = self.db_name.text() or "nexledger.db"
-            backup_file = db_file.replace(".db", "_backup.db")
+            if not os.path.exists(db_file):
+                QMessageBox.warning(self, "Backup Failed", f"Database file not found: {db_file}")
+                return
+            backup_file = os.path.splitext(db_file)[0] + "_backup.db"
             copyfile(db_file, backup_file)
             QMessageBox.information(self, "Backup", f"Database backed up to {backup_file}")
         except Exception as e:

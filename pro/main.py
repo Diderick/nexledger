@@ -1,7 +1,9 @@
 # pro/main.py
 # FINAL MERGED + ALL FEATURES + THEME FIXED – 12 November 2025
+# (patched 2025-11-15 to avoid closing persistent DBs)
 
 import sys, os, json
+
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QTableWidget, QTableWidgetItem,
@@ -23,7 +25,8 @@ from shared.settings_tab import SettingsTab
 
 from shared.db import (
     set_current_company, get_current_company, get_conn,
-    init_db_for_company, list_companies, COMPANIES_DIR, delete_company, SETTINGS_FILE, is_duplicate_transaction
+    init_db_for_company, list_companies, COMPANIES_DIR, delete_company, SETTINGS_FILE, is_duplicate_transaction,
+    create_company
 )
 from shared.theme import get_widget_style, is_dark_mode, set_dark_mode
 
@@ -175,7 +178,8 @@ class CompanySelector(QDialog):
                 QMessageBox.warning(self, "Error", "Company exists")
                 return
             try:
-                init_db_for_company(name)
+                # use create_company to initialize properly
+                create_company(name)
             except Exception as e:
                 QMessageBox.critical(self, "Error", str(e))
                 return
@@ -302,6 +306,7 @@ class NexLedgerPro(QMainWindow):
 
     def load_company(self, name):
         if not name:
+            QMessageBox.warning(self, "No Company", "Please create or select a company.")
             return
         set_current_company(name)
         self.company_label.setText(f"Company: {name}")
@@ -360,6 +365,9 @@ class NexLedgerPro(QMainWindow):
         self.tabs = QTabWidget()
         self.tabs.setDocumentMode(True)
         self.content_area.addWidget(self.tabs, 1)
+        if not get_current_company():
+            self.tabs.addTab(QLabel("<h3>Please create or select a company first.</h3>"), "Welcome")
+            return
 
         self.tabs.addTab(self.create_dashboard(), "Dashboard")
         self.tabs.addTab(self.create_customers(), "Customers")
@@ -370,7 +378,7 @@ class NexLedgerPro(QMainWindow):
         self.tabs.addTab(BankFeedsTab(self), "Bank Feeds")
         self.tabs.addTab(QWidget(), "Categories")
         self.tabs.addTab(QWidget(), "Reports")
-        self.tabs.addTab(SettingsTab(self), "Settings")
+       # self.tabs.addTab(SettingsTab(self), "Settings")
         self.tabs.addTab(PayrollTab(self), "Payroll")
 
     def create_dashboard(self):
@@ -393,7 +401,7 @@ class NexLedgerPro(QMainWindow):
         try:
             conn = get_conn()
             rows = conn.execute("SELECT id, name, email, phone FROM customers").fetchall()
-            conn.close()
+            # DO NOT close the persistent connection here!
             self.cust_table.setRowCount(len(rows))
             for r, row in enumerate(rows):
                 for c, val in enumerate(row):
@@ -440,6 +448,12 @@ def show_login_flow():
             show_login_flow()
     else:
         sys.exit()
+
+
+def closeEvent(self, event):
+    from shared.db import close_all_dbs
+    close_all_dbs()
+    super().closeEvent(event)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

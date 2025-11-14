@@ -1,10 +1,3 @@
-# shared/db.py
-# FINAL MERGED – 13 November 2025
-# DUAL get_conn() + AUTO-INIT + PAYROLL TABLES + get_conn_raw()
-
-# shared/db.py
-# FINAL FIXED – 13 November 2025
-
 import sqlite3
 import json
 import re
@@ -134,7 +127,6 @@ def _table_exists(conn, table_name: str) -> bool:
 def init_db_for_company(conn, company_name: str):
     cur = conn.cursor()
     cur.executescript('''
-        -- [ALL TABLES FROM PREVIOUS VERSION + PAYROLL]
         CREATE TABLE IF NOT EXISTS company_info (
             id INTEGER PRIMARY KEY CHECK (id = 1),
             name TEXT NOT NULL,
@@ -224,7 +216,6 @@ def init_db_for_company(conn, company_name: str):
             FOREIGN KEY(employee_id) REFERENCES employees(id)
         );
     ''')
-
     clean_name = sanitize_company_name(company_name)
     cur.execute("INSERT OR IGNORE INTO company_info (id, name) VALUES (1, ?)", (clean_name,))
     cur.execute("INSERT OR IGNORE INTO vat_settings (id, vat_period) VALUES (1, 'Monthly')")
@@ -249,9 +240,6 @@ def create_company(company_name: str) -> str:
 
     set_current_company(clean_name)
     return clean_name
-
-
-# [REST OF FILE UNCHANGED: delete_company, save_company_info, etc.]
 
 
 def delete_company(company_name: str) -> bool:
@@ -348,3 +336,15 @@ def get_conn_raw():
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def close_all_dbs():
+    """Close all persistent DB connections gracefully on application shutdown."""
+    global _connections
+    for conn in list(_connections.values()):
+        try:
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
+    _connections.clear()
