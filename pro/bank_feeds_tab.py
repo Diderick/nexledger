@@ -332,9 +332,10 @@ class BankFeedsTab(QWidget):
         layout.addWidget(self.progress)
 
     def import_file(self):
+        directory = str(Path.home() / "Downloads")
         path, _ = QFileDialog.getOpenFileName(
-            self, "Import Bank Statement",
-            "", "Bank Files (*.csv *.pdf *.ofx);;CSV (*.csv);;PDF (*.pdf);;OFX (*.ofx)"
+            self, "Import Bank Statement", directory
+            , "Bank Files (*.csv *.pdf *.ofx);;CSV (*.csv);;PDF (*.pdf);;OFX (*.ofx)"
         )
         if not path:
             return
